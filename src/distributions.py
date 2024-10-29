@@ -50,7 +50,7 @@ class StudentDist:
 
     def log_likelihood_full(self, res, degree_freedom, tol_mean=1E-6):
         self.mean = np.mean(res)
-        self.dispersion = (np.var(res - self.mean))
+        self.dispersion = (np.var(res - self.mean))**0.5
         self.degree_freedom = degree_freedom
         n = len(res)
         return self.log_likelihood(res, tol_mean) + n * (math.log(math.gamma((degree_freedom + 1) / 2)) - math.log(
