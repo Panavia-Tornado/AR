@@ -15,16 +15,18 @@ class GaussDist:
         self.dispersion = dispersion
 
     def fit(self, data):
-        res = scipy.stats.norm.fit(data)
-        self.mean, self.dispersion = res
+        self.mean = np.mean(data)
+        self.dispersion = np.std(data)
 
-    def log_likelihood(self, res, tol_mean=1E-6):
-        n = len(res)
+    def pdf(self, x):
+        return scipy.stats.norm.pdf(x, loc=self.mean, scale=self.dispersion ** 1)
+
+    def log_likelihood(self, res, n, tol_mean=1E-6):
         if abs(self.mean) < tol_mean:
-            return -n / (2 * math.log(self.dispersion ** 2))
+            return -n / 2 * math.log(self.dispersion ** 2)
         else:
-            return -n / (2 * math.log(self.dispersion ** 2)) - np.sum(np.square(res - self.mean)) / (
-                    2 * self.dispersion ** 2)
+            return -n / 2 * (math.log(self.dispersion ** 2) + np.sum(np.square(res - self.mean)) / (
+                    2 * self.dispersion ** 2))
 
 
 class StudentDist:
@@ -34,11 +36,12 @@ class StudentDist:
         self.degree_freedom = degree_freedom
 
     def fit(self, data):
-        res = scipy.stats.norm.fit(data)
+        self.mean = np.mean(data)
+        self.dispersion = np.std(data)
+        res = scipy.stats.t.fit(data, floc=self.mean, fscale=self.dispersion)
         self.mean, self.dispersion, self.degree_freedom = res
 
-    def log_likelihood(self, res, tol_mean=1E-6):
-        n = len(res)
+    def log_likelihood(self, res, n, tol_mean=1E-6):
         if self.mean < tol_mean:
             return (self.degree_freedom + 1) / 2 * math.log(
                 np.prod(1 + res / ((self.degree_freedom - 2) * self.dispersion))) + 1 / 2 * math.log(
@@ -50,7 +53,7 @@ class StudentDist:
 
     def log_likelihood_full(self, res, degree_freedom, tol_mean=1E-6):
         self.mean = np.mean(res)
-        self.dispersion = (np.var(res - self.mean))**0.5
+        self.dispersion = (np.var(res - self.mean)) ** 0.5
         self.degree_freedom = degree_freedom
         n = len(res)
         return self.log_likelihood(res, tol_mean) + n * (math.log(math.gamma((degree_freedom + 1) / 2)) - math.log(

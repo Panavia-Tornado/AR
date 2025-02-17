@@ -7,23 +7,24 @@ import numpy as np
 class AR:
     def __init__(self, dist=distributions.GaussDist()):
         self.dist = dist
-        self.criteria = distributions.criteria
+        self.criterias = distributions.criteria
 
-    def criteria(self, name, n):
-        return self.criteria[name](self.likelihood, n, len(self.ar_coef))
+    def criteria(self, name):
+        return self.criterias[name](self.likelihood, self.n, len(self.ar_coef))
 
     def fit(self, data, ar_lags):
         n = len(data)
+        self.n = n - ar_lags[-1]
         m = len(ar_lags)
-        x = np.ones(1 + m, n - ar_lags[m - 1])
-        for j in range(i + 1):
-            x[j, :] = data[m - self.ar_coef[j]:n]
-        y = data[m:n]
+        x = np.ones((1 + m, n - ar_lags[m - 1]))
+        for j in range(m):
+            x[j + 1, :] = data[ar_lags[m - 1] - ar_lags[j]:n - ar_lags[j]]
+        y = data[ar_lags[m - 1]:n]
         self.ar_coef = linear_dependence.ols_fit(x, y)
         self.ar_lags = ar_lags
-        eps = y - np.multiply(x.T, self.ar_coef)
+        eps = y - np.dot(x.T, self.ar_coef)
         self.dist.fit(eps)
-        self.likelihood = self.dist.log_likelihood(eps)
+        self.likelihood = self.dist.log_likelihood(eps, self.n)
         return eps
 
     def optimal_fit(self, data, max_ar, criteria='aic'):
@@ -37,7 +38,7 @@ class AR:
         for i in range(1, len(ar_lags)):
             test_ar = AR()
             test_eps = test_ar.fit(data, ar_lags[:i + 1])
-            if test_ar.criteria(criteria, n) > self.criteria(criteria, n):
+            if test_ar.criteria(criteria) < self.criteria(criteria):
                 self.dist = test_ar.dist
                 self.ar_coef = test_ar.ar_coef
                 self.ar_lags = test_ar.ar_lags

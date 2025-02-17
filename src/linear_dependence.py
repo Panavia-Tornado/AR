@@ -37,6 +37,6 @@ def cov_beta(x, y, beta):
 
 
 def ols_fit(x, y):
-    a = np.multiply(x, x.T)
-    b = np.multiply(x, y)
+    a = np.matmul(x, x.T)
+    b = np.matmul(x, y)
     return np.linalg.solve(a, b)
