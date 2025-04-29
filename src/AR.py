@@ -46,13 +46,19 @@ class AR:
                 eps = test_eps
         return eps
 
-    def forecast(self, data, horizont):
-        summary_data = np.array(len(data) + horizont)
-        max_lag = self.ar_lags[-1]
-        forecast_mask = np.zeros(max_lag)
-        for i in range(len(self.ar_lags)):
-            forecast_mask[max_lag - self.ar_lag[i]] = self.ar_coef[i]
-        summary_data[:len(data)] = data
+    def forecast(self, data, horizont, interval=25E-2):
+        forecast_data = np.zeros(horizont)
+        var_error = np.zeros(horizont)
         for t in range(horizont):
-            summary_data[t + len(data)] = np.dot(forecast_mask, summary_data[t + len(data) - max_lag:t + len(data)])
-        return summary_data[len(data):]
+            y, var = self.ar_coef[0], 1
+            for i, lag in enumerate(self.ar_lags):
+                if t - lag < 0:
+                    y += data[len(data) + t - lag] * self.ar_coef[i + 1]
+                else:
+                    y += forecast_data[t - lag] * self.ar_coef[i + 1]
+                    var *= self.ar_coef[i + 1] * self.ar_coef[i + 1]
+            var_error[t] = var
+            forecast_data[t] = y
+        error = np.sqrt(var_error)
+        error *= self.dist.inv_cdf(interval / 2)
+        return [forecast_data, error]

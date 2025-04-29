@@ -111,5 +111,36 @@ dist_optimal = optimal_ar.dist.pdf(eps_sorted)
 plt.plot(eps_sorted, dist_optimal)
 plt.xlabel('error')
 plt.ylabel('density')
-plt.savefig(f'{image_directory}/pdf.png')
 plt.title('Gauss pdf on optimal AR')
+plt.savefig(f'{image_directory}/pdf.png')
+plt.close()
+
+forecasted, error = optimal_ar.forecast(r, 20)
+dates = ['2018-02-01', '2018-03-01', '2018-04-01', '2018-05-01', '2018-06-01', '2018-07-01', '2018-08-01',
+         '2018-09-01', '2018-10-01', '2018-11-01', '2018-12-01', '2019-01-01', '2019-02-01', '2019-03-01',
+         '2019-04-01', '2019-05-01', '2019-06-01', '2019-07-01', '2019-08-01', '2019-09-01']
+dates = [datetime.datetime.strptime(x, "%Y-%m-%d").date() for x in dates]
+forecast = np.exp(forecasted) - 1
+plus_error = np.exp(forecasted + error) - 1
+minus_error = np.exp(forecasted - error) - 1
+forecast[0] = forecast[0] * (dates[0] - times[-1]).days + data[-1]
+plus_error[0] = plus_error[0] * (dates[0] - times[-1]).days + data[-1]
+minus_error[0] = minus_error[0] * (dates[0] - times[-1]).days + data[-1]
+for i in range(1, 20):
+    forecast[i] = forecast[i] * (dates[i] - dates[i - 1]).days + forecast[i - 1]
+    plus_error[i] = plus_error[i] * (dates[i] - dates[i - 1]).days + plus_error[i - 1]
+    minus_error[i] = minus_error[i] * (dates[i] - dates[i - 1]).days + minus_error[i - 1]
+forecast=np.insert(forecast,0,data[-1])
+plus_error=np.insert(plus_error,0,data[-1])
+minus_error=np.insert(minus_error,0,data[-1])
+dates=[times[-1],*dates]
+plt.plot(dates,forecast, label='forecasted data')
+plt.plot(dates,plus_error,linestyle = '--', label='25% interval positive error')
+plt.plot(dates,minus_error,linestyle = '--', label='25% interval negative error')
+plt.plot(times[len(times)-25:],data[len(data)-25:], label='original data')
+plt.xlabel('date')
+plt.ylabel('P(t)')
+plt.legend()
+plt.title('Forecast with 25% interval error on optimal AR')
+plt.savefig(f'{image_directory}/forecast.png')
+plt.close()

@@ -19,7 +19,13 @@ class GaussDist:
         self.dispersion = np.std(data)
 
     def pdf(self, x):
-        return scipy.stats.norm.pdf(x, loc=self.mean, scale=self.dispersion ** 1)
+        return scipy.stats.norm.pdf(x, loc=self.mean, scale=self.dispersion)
+
+    def cdf(self, x):
+        return scipy.stats.norm.cdf(x, loc=self.mean, scale=self.dispersion)
+
+    def inv_cdf(self, x):
+        return scipy.stats.norm.ppf(x, loc=self.mean, scale=self.dispersion)
 
     def log_likelihood(self, res, n, tol_mean=1E-6):
         if abs(self.mean) < tol_mean:
@@ -40,6 +46,15 @@ class StudentDist:
         self.dispersion = np.std(data)
         res = scipy.stats.t.fit(data, floc=self.mean, fscale=self.dispersion)
         self.mean, self.dispersion, self.degree_freedom = res
+
+    def pdf(self, x):
+        return scipy.stats.t.pdf(x, self.degree_freedom, loc=self.mean, scale=self.dispersion)
+
+    def cdf(self, x):
+        return scipy.stats.t.cdf(x, self.degree_freedom, loc=self.mean, scale=self.dispersion)
+
+    def inv_cdf(self, x):
+        return scipy.stats.t.ppf(x, self.degree_freedom, loc=self.mean, scale=self.dispersion)
 
     def log_likelihood(self, res, n, tol_mean=1E-6):
         if self.mean < tol_mean:
