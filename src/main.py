@@ -115,7 +115,7 @@ plt.title('Gauss pdf on optimal AR')
 plt.savefig(f'{image_directory}/pdf.png')
 plt.close()
 
-forecasted, error = optimal_ar.forecast(r, 20)
+forecasted, error = optimal_ar.forecast(r, 20, interval=95E-2)
 dates = ['2018-02-01', '2018-03-01', '2018-04-01', '2018-05-01', '2018-06-01', '2018-07-01', '2018-08-01',
          '2018-09-01', '2018-10-01', '2018-11-01', '2018-12-01', '2019-01-01', '2019-02-01', '2019-03-01',
          '2019-04-01', '2019-05-01', '2019-06-01', '2019-07-01', '2019-08-01', '2019-09-01']
@@ -141,6 +141,6 @@ plt.plot(times[len(times)-25:],data[len(data)-25:], label='original data')
 plt.xlabel('date')
 plt.ylabel('P(t)')
 plt.legend()
-plt.title('Forecast with 25% interval error on optimal AR')
+plt.title('Forecast with 95% interval error on optimal AR')
 plt.savefig(f'{image_directory}/forecast.png')
 plt.close()

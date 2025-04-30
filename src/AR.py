@@ -60,5 +60,5 @@ class AR:
             var_error[t] = var
             forecast_data[t] = y
         error = np.sqrt(var_error)
-        error *= self.dist.inv_cdf(interval / 2)
+        error *= self.dist.inv_cdf(interval / 2 + 0.5)
         return [forecast_data, error]
