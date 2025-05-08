@@ -140,6 +140,14 @@ plt.plot(dates,minus_error,linestyle = '--', label='95% interval negative error'
 plt.plot(times[len(times)-25:],data[len(data)-25:], label='original data')
 plt.xlabel('date')
 plt.ylabel('P(t)')
+s=(rf'r(t)={np.round(optimal_ar.ar_coef[0],2)}')
+for i in range(len(optimal_ar.ar_lags)):
+    if optimal_ar.ar_coef[i+1]>=0:
+        s+='+'
+    s+=str(np.round(optimal_ar.ar_coef[i+1],2))+rf'*r(t-{optimal_ar.ar_lags[i]})'
+    if i in [2,6,10]:
+        s+='\n'
+plt.text(np.datetime64('2016-01-01'), 20,s,fontsize=10)
 plt.legend()
 plt.title('Forecast with 95% interval error on optimal AR')
 plt.savefig(f'{image_directory}/forecast.png')

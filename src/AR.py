@@ -56,7 +56,7 @@ class AR:
                     y += data[len(data) + t - lag] * self.ar_coef[i + 1]
                 else:
                     y += forecast_data[t - lag] * self.ar_coef[i + 1]
-                    var *= self.ar_coef[i + 1] * self.ar_coef[i + 1]
+                    var += self.ar_coef[i + 1] * self.ar_coef[i + 1]
             var_error[t] = var
             forecast_data[t] = y
         error = np.sqrt(var_error)
