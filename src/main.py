@@ -116,14 +116,10 @@ plt.title('Gauss pdf on optimal AR')
 plt.savefig(f'{image_directory}/pdf.png')
 plt.close()
 
-# 2. Строим теоретические квантили нормального распределения
-#Используем формулу для позиционных квантилей: (i - 0.5) / n
 n = len(eps_sorted)
-
 probs = (np.arange(1, n + 1) - 0.5) / n
 theoretical_quants = optimal_ar.dist.inv_cdf(probs)
 
-# 3. Строим Q–Q plot
 plt.figure(figsize=(6, 6))
 plt.plot(theoretical_quants, eps_sorted, 'o', label='Q–Q points')
 plt.plot(theoretical_quants, theoretical_quants, 'r--', label='y = x')  # линия идеального совпадения
