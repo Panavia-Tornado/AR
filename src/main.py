@@ -10,8 +10,7 @@ import stat_tests
 
 image_directory = 'images'
 
-times = []
-data = []
+times, data = [], []
 with open('Electric_Production.csv', newline='') as csvfile:
     reader = csv.reader(csvfile, delimiter=',', quotechar='|')
     first = True
@@ -23,13 +22,16 @@ with open('Electric_Production.csv', newline='') as csvfile:
             data.append(float(row[-1]))
             times.append(datetime.datetime.strptime(row[0], "%Y-%m-%d").date())
 
-figure, axis = plt.subplots(1, 2, constrained_layout=True, figsize=(10, 5))
+# построение исходного ряда
 
+figure, axis = plt.subplots(1, 2, constrained_layout=True, figsize=(10, 5))
 axis[0].plot(times, data)
 axis[0].set_xlabel('year')
 axis[0].set_ylabel('P(t)')
 axis[0].grid()
 axis[0].set_title('Original series')
+
+# построение логарифмической производной ряда
 
 r = []
 for i in range(len(data) - 1):
@@ -56,6 +58,8 @@ for i in range(len(p)):
     if abs(p[i]) > 2 / n ** 0.5:
         ar_lags.append(i + 1)
 
+# построение PACF
+
 plt.scatter(np.arange(1, 1 + max_lag), p)
 plt.axhline(y=2 / n ** 0.5, color='g', linestyle='--', label='two upper normal boundary')
 plt.axhline(y=-2 / n ** 0.5, color='g', linestyle='--', label='two lower normal boundary')
@@ -68,6 +72,9 @@ plt.close()
 
 optimal_ar = AR.AR()
 optimal_eps = np.array(optimal_ar.optimal_fit(r, ar_lags[-1]))
+
+# построение функции правдоподобия
+
 ars = []
 likelihood = []
 for i in range(len(ar_lags)):
@@ -75,7 +82,6 @@ for i in range(len(ar_lags)):
     my_ar.fit(r, ar_lags[:i + 1])
     ars.append(my_ar)
     likelihood.append(my_ar.likelihood)
-
 plt.plot(ar_lags, likelihood)
 plt.scatter(optimal_ar.ar_lags[-1], optimal_ar.likelihood, label='optimal')
 plt.xlabel('lag')
@@ -85,6 +91,8 @@ plt.grid()
 plt.legend()
 plt.savefig(f'{image_directory}/likelihood.png')
 plt.close()
+
+# построение критериев
 
 criteria_name = {
     'aic': 'Aic information criterion',
@@ -106,6 +114,8 @@ plt.title('Information criterions')
 plt.savefig(f'{image_directory}/criterions.png')
 plt.close()
 
+# построение pdf
+
 plt.hist(optimal_eps.flatten(), bins=30, density=True)
 eps_sorted = np.sort(optimal_eps)
 dist_optimal = optimal_ar.dist.pdf(eps_sorted)
@@ -116,10 +126,11 @@ plt.title('Gauss pdf on optimal AR')
 plt.savefig(f'{image_directory}/pdf.png')
 plt.close()
 
+# построение QQ
+
 n = len(eps_sorted)
 probs = (np.arange(1, n + 1) - 0.5) / n
 theoretical_quants = optimal_ar.dist.inv_cdf(probs)
-
 plt.figure(figsize=(6, 6))
 plt.plot(theoretical_quants, eps_sorted, 'o', label='Q–Q points')
 plt.plot(theoretical_quants, theoretical_quants, 'r--', label='y = x')  # линия идеального совпадения
@@ -130,6 +141,8 @@ plt.legend()
 plt.grid(True)
 plt.savefig(f'{image_directory}/QQ.png')
 plt.close()
+
+# построение прогноза
 
 forecasted, error = optimal_ar.forecast(r, 20, interval=95E-2)
 dates = ['2018-02-01', '2018-03-01', '2018-04-01', '2018-05-01', '2018-06-01', '2018-07-01', '2018-08-01',
@@ -146,24 +159,26 @@ for i in range(1, 20):
     forecast[i] = forecast[i] * (dates[i] - dates[i - 1]).days + forecast[i - 1]
     plus_error[i] = plus_error[i] * (dates[i] - dates[i - 1]).days + plus_error[i - 1]
     minus_error[i] = minus_error[i] * (dates[i] - dates[i - 1]).days + minus_error[i - 1]
-forecast=np.insert(forecast,0,data[-1])
-plus_error=np.insert(plus_error,0,data[-1])
-minus_error=np.insert(minus_error,0,data[-1])
-dates=[times[-1],*dates]
-plt.plot(dates,forecast, label='forecasted data')
-plt.plot(dates,plus_error,linestyle = '--', label='95% interval positive error')
-plt.plot(dates,minus_error,linestyle = '--', label='95% interval negative error')
-plt.plot(times[len(times)-25:],data[len(data)-25:], label='original data')
+forecast = np.insert(forecast, 0, data[-1])
+plus_error = np.insert(plus_error, 0, data[-1])
+minus_error = np.insert(minus_error, 0, data[-1])
+dates = [times[-1], *dates]
+plt.plot(dates, forecast, label='forecasted data')
+plt.plot(dates, plus_error, linestyle='--', label='95% interval positive error')
+plt.plot(dates, minus_error, linestyle='--', label='95% interval negative error')
+plt.plot(times[len(times) - 25:], data[len(data) - 25:], label='original data')
 plt.xlabel('date')
 plt.ylabel('P(t)')
-s=(rf'r(t)={np.round(optimal_ar.ar_coef[0],2)}')
+
+# нанесение построенной модели в виде текста на график
+s = rf'r(t)={np.round(optimal_ar.ar_coef[0], 2)}'
 for i in range(len(optimal_ar.ar_lags)):
-    if optimal_ar.ar_coef[i+1]>=0:
-        s+='+'
-    s+=str(np.round(optimal_ar.ar_coef[i+1],2))+rf'*r(t-{optimal_ar.ar_lags[i]})'
-    if i in [2,6,10]:
-        s+='\n'
-plt.text(np.datetime64('2016-01-01'), 20,s,fontsize=10)
+    if optimal_ar.ar_coef[i + 1] >= 0:
+        s += '+'
+    s += str(np.round(optimal_ar.ar_coef[i + 1], 2)) + rf'*r(t-{optimal_ar.ar_lags[i]})'
+    if i in [2, 6, 10]:
+        s += '\n'
+plt.text(np.datetime64('2016-01-01'), 20, s, fontsize=10)
 plt.legend()
 plt.title('Forecast with 95% interval error on optimal AR')
 plt.savefig(f'{image_directory}/forecast.png')
