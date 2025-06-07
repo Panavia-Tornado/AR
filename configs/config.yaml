@@ -1,15 +1,22 @@
-input_data_path: "src/Electric_Production.csv"
+input_data_path: "Electric_Production.csv"
 
 preprocessing:
-  log_diff: true
+  log_diff: true              # Применять логарифмическую разницу
 
 model:
-  model_type: "AR"
-  max_lag: 50
-  distribution: "gaussian"
+  model_type: "AR"            # Тип модели
+  max_lag: 50                # Максимальное число лагов для перебора
+  distribution: "gaussian"    # Распределение ошибок: gaussian / student / ...
 
 forecast:
-  forecast_steps: 20
-  confidence: 0.95
+  forecast_steps: 20          # Кол-во шагов прогноза вперёд
+  confidence: 0.95            # Уровень доверительного интервала
 
-images_dir: "../images"
+images_dir: "../images"       # Путь для сохранения графиков
+
+logging:
+  level: "INFO"               # Уровень логирования (DEBUG, INFO, WARNING, ERROR)
+  save_logs: true             # Сохранять ли логи в файл
+
+random_seed: 42               # Фиксируем случайное зерно для воспроизводимости (если нужно)
+

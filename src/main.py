@@ -1,185 +1,291 @@
-import csv
-import datetime
-import matplotlib.pyplot as plt
+# Стандартные библиотеки
+import os
+import yaml
+import argparse
+
+# Сторонние библиотеки
 import numpy as np
-import scipy.stats as stats
-import distributions
-import math
+import pandas as pd
+import matplotlib.pyplot as plt
+from dateutil.relativedelta import relativedelta
+
+# Локальные модули
 import AR
+import distributions
 import stat_tests
 
-image_directory = 'images'
 
-times, data = [], []
-with open('Electric_Production.csv', newline='') as csvfile:
-    reader = csv.reader(csvfile, delimiter=',', quotechar='|')
-    first = True
-    for row in reader:
-        if first:
-            first = False
-            continue
-        else:
-            data.append(float(row[-1]))
-            times.append(datetime.datetime.strptime(row[0], "%Y-%m-%d").date())
+def load_config(path):
+    config_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', path))
+    with open(config_path, "r") as file:
+        config = yaml.safe_load(file)
+    return config
 
-# построение исходного ряда
+def update_config_with_args(config, args):
+    # Переопределяем параметры, если они заданы в args
+    if args.input_data_path:
+        config['input_data_path'] = args.input_data_path
+    if args.log_diff is not None:
+        config['preprocessing']['log_diff'] = args.log_diff
+    if args.model_type:
+        config['model']['model_type'] = args.model_type
+    if args.max_lag is not None:
+        config['model']['max_lag'] = args.max_lag
+    if args.distribution:
+        config['model']['distribution'] = args.distribution
+    if args.forecast_steps is not None:
+        config['forecast']['forecast_steps'] = args.forecast_steps
+    if args.confidence is not None:
+        config['forecast']['confidence'] = args.confidence
+    if args.images_dir:
+        config['images_dir'] = args.images_dir
+    return config
 
-figure, axis = plt.subplots(1, 2, constrained_layout=True, figsize=(10, 5))
-axis[0].plot(times, data)
-axis[0].set_xlabel('year')
-axis[0].set_ylabel('P(t)')
-axis[0].grid()
-axis[0].set_title('Original series')
 
-# построение логарифмической производной ряда
+def main():
+    parser = argparse.ArgumentParser(description="Прогнозирование временных рядов с AR-моделью")
+    parser.add_argument('--config', type=str, default='configs/config.yaml', help='Путь к YAML конфигу')
 
-r = []
-for i in range(len(data) - 1):
-    r.append(np.log((data[i + 1] - data[i]) / (times[i + 1] - times[i]).days + 1))
-r = np.array(r)
+    # Опциональные переопределения
+    parser.add_argument('--input_data_path', type=str, help='Путь к CSV с данными')
+    parser.add_argument('--log_diff', type=lambda x: (str(x).lower() == 'true'),
+                        help='Использовать логарифмическую разницу (True/False)')
+    parser.add_argument('--model_type', type=str, choices=['AR'], help='Тип модели')
+    parser.add_argument('--max_lag', type=int, help='Максимальное число лагов')
+    parser.add_argument('--distribution', type=str, choices=['gaussian', 'student'], help='Распределение ошибок')
+    parser.add_argument('--forecast_steps', type=int, help='Число шагов прогноза')
+    parser.add_argument('--confidence', type=float, help='Уровень доверительного интервала')
+    parser.add_argument('--images_dir', type=str, help='Путь для сохранения графиков')
 
-axis[1].plot(times[:len(times) - 1], r)
-axis[1].set_xlabel('year')
-axis[1].set_ylabel(r'$r=log(1 + \frac{P(t+1)-P(t)}{date(t+1)-date(t)})$')
-axis[1].grid()
-axis[1].set_title('Log difference series')
-plt.savefig(f'{image_directory}/original and log_dif series.png')
-plt.close()
+    args = parser.parse_args()
+    config = load_config(args.config)
+    config = update_config_with_args(config, args)
 
-max_lag = math.floor(4 * (len(r) / 100) ** (2 / 9))
-max_lag = 50
 
-ar_models = []
+    max_lag = config["model"]["max_lag"]
+    use_log_diff = config["preprocessing"]["log_diff"]
+    forecast_horizon = config["forecast"]["forecast_steps"]
+    confidence = config["forecast"]["confidence"]
 
-p = stat_tests.parcorr(r, max_lag)
-ar_lags = []
-n = len(r)
-for i in range(len(p)):
-    if abs(p[i]) > 2 / n ** 0.5:
-        ar_lags.append(i + 1)
 
-# построение PACF
+    # Определяем путь к папке images, создаём если нет
+    image_directory = os.path.abspath(os.path.join(os.path.dirname(__file__), config['images_dir']))
+    os.makedirs(image_directory, exist_ok=True)
 
-plt.scatter(np.arange(1, 1 + max_lag), p)
-plt.axhline(y=2 / n ** 0.5, color='g', linestyle='--', label='two upper normal boundary')
-plt.axhline(y=-2 / n ** 0.5, color='g', linestyle='--', label='two lower normal boundary')
-plt.legend()
-plt.grid()
-plt.xlabel('lag')
-plt.title('Partial autocorrelation function')
-plt.savefig(f'{image_directory}/PACF.png')
-plt.close()
+    # Определяем путь к данным
+    data_directory = os.path.abspath(os.path.join(os.path.dirname(__file__), config['input_data_path']))
 
-optimal_ar = AR.AR()
-optimal_eps = np.array(optimal_ar.optimal_fit(r, ar_lags[-1]))
+    # Загружаем CSV в DataFrame
+    df = pd.read_csv(data_directory, parse_dates=[0])
 
-# построение функции правдоподобия
+    # Получаем список дат
+    times = df.iloc[:, 0].dt.date.tolist()
 
-ars = []
-likelihood = []
-for i in range(len(ar_lags)):
-    my_ar = AR.AR()
-    my_ar.fit(r, ar_lags[:i + 1])
-    ars.append(my_ar)
-    likelihood.append(my_ar.likelihood)
-plt.plot(ar_lags, likelihood)
-plt.scatter(optimal_ar.ar_lags[-1], optimal_ar.likelihood, label='optimal')
-plt.xlabel('lag')
-plt.ylabel(r'$\log{L}+\frac{n}{2}\cdot\log{2\pi}$')
-plt.title("Log likelihood")
-plt.grid()
-plt.legend()
-plt.savefig(f'{image_directory}/likelihood.png')
-plt.close()
+    # Получаем список значений
+    data = df.iloc[:, -1].tolist()
 
-# построение критериев
+    # построение исходного ряда
+    figure, axis = plt.subplots(1, 2, constrained_layout=True, figsize=(10, 5))
+    axis[0].plot(times, data)
+    axis[0].set_xlabel('year')
+    axis[0].set_ylabel('P(t)')
+    axis[0].grid()
+    axis[0].set_title('Original series')
 
-criteria_name = {
-    'aic': 'Aic information criterion',
-    'bic': 'Bayes information criterion',
-    'hqc': 'Hannan–Quinn information criterion'
-}
+    # Переведём times в numpy массив с типом datetime64[D] для удобных операций с датами
+    times_np = np.array(times, dtype='datetime64[D]')
 
-for crit in distributions.criteria.keys():
+    if use_log_diff:
+        # Считаем разности по времени в днях (int)
+        delta_days = (times_np[1:] - times_np[:-1]).astype(int)
+
+        # Считаем разности по значениям
+        delta_value = np.array(data[1:]) - np.array(data[:-1])
+
+        # Логарифмическая производная
+        r = np.log(delta_value / delta_days + 1)
+    else:
+        r = data.copy()
+
+    times_r = times[:-1]
+
+    axis[1].plot(times_r, r)
+    axis[1].set_xlabel('year')
+    axis[1].set_ylabel(r'$r = \log\left(1 + \frac{P(t+1) - P(t)}{date(t+1) - date(t)}\right)$')
+    axis[1].grid()
+    axis[1].set_title('Log difference series')
+
+    plt.savefig(f'{image_directory}/original and log_dif series.png')
+    plt.close()
+
+    p = stat_tests.parcorr(r, max_lag)
+    ar_lags = []
     n = len(r)
-    crit_data = []
-    for my_ar in ars:
-        crit_data.append(my_ar.criteria(crit))
-    plt.plot(ar_lags, crit_data, label=criteria_name[crit])
-    plt.scatter(optimal_ar.ar_lags[-1], optimal_ar.criteria(crit), label='optimal')
-plt.legend()
-plt.grid()
-plt.xlabel('lag')
-plt.title('Information criterions')
-plt.savefig(f'{image_directory}/criterions.png')
-plt.close()
+    for i in range(len(p)):
+        if abs(p[i]) > 2 / n ** 0.5:
+            ar_lags.append(i + 1)
 
-# построение pdf
+    # построение PACF
 
-plt.hist(optimal_eps.flatten(), bins=30, density=True)
-eps_sorted = np.sort(optimal_eps)
-dist_optimal = optimal_ar.dist.pdf(eps_sorted)
-plt.plot(eps_sorted, dist_optimal)
-plt.xlabel('error')
-plt.ylabel('density')
-plt.title('Gauss pdf on optimal AR')
-plt.savefig(f'{image_directory}/pdf.png')
-plt.close()
+    plt.scatter(np.arange(1, max_lag + 1), p, label='PACF values')
+    plt.hlines(y=2 / np.sqrt(n), xmin=1, xmax=max_lag, colors='g', linestyles='--', label='Upper bound')
+    plt.hlines(y=-2 / np.sqrt(n), xmin=1, xmax=max_lag, colors='g', linestyles='--', label='Lower bound')
+    plt.legend()
+    plt.grid(True)
+    plt.xlabel('lag')
+    plt.ylabel('Partial Autocorrelation')
+    plt.title('Partial Autocorrelation Function (PACF)')
 
-# построение QQ
+    plt.savefig(f'{image_directory}/PACF.png')
+    plt.close()
 
-n = len(eps_sorted)
-probs = (np.arange(1, n + 1) - 0.5) / n
-theoretical_quants = optimal_ar.dist.inv_cdf(probs)
-plt.figure(figsize=(6, 6))
-plt.plot(theoretical_quants, eps_sorted, 'o', label='Q–Q points')
-plt.plot(theoretical_quants, theoretical_quants, 'r--', label='y = x')  # линия идеального совпадения
-plt.xlabel('Theoretical quantiles N(mean, dispersion)')
-plt.ylabel('Observed residuals')
-plt.title("Q–Q Plot of Residuals")
-plt.legend()
-plt.grid(True)
-plt.savefig(f'{image_directory}/QQ.png')
-plt.close()
+    optimal_ar = AR.AR()
+    optimal_eps = np.array(optimal_ar.optimal_fit(r, ar_lags[-1]))
 
-# построение прогноза
+    Q, p_value = stat_tests.ljung_box_test(optimal_eps, max_lag)
 
-forecasted, error = optimal_ar.forecast(r, 20, interval=95E-2)
-dates = ['2018-02-01', '2018-03-01', '2018-04-01', '2018-05-01', '2018-06-01', '2018-07-01', '2018-08-01',
-         '2018-09-01', '2018-10-01', '2018-11-01', '2018-12-01', '2019-01-01', '2019-02-01', '2019-03-01',
-         '2019-04-01', '2019-05-01', '2019-06-01', '2019-07-01', '2019-08-01', '2019-09-01']
-dates = [datetime.datetime.strptime(x, "%Y-%m-%d").date() for x in dates]
-forecast = np.exp(forecasted) - 1
-plus_error = np.exp(forecasted + error) - 1
-minus_error = np.exp(forecasted - error) - 1
-forecast[0] = forecast[0] * (dates[0] - times[-1]).days + data[-1]
-plus_error[0] = plus_error[0] * (dates[0] - times[-1]).days + data[-1]
-minus_error[0] = minus_error[0] * (dates[0] - times[-1]).days + data[-1]
-for i in range(1, 20):
-    forecast[i] = forecast[i] * (dates[i] - dates[i - 1]).days + forecast[i - 1]
-    plus_error[i] = plus_error[i] * (dates[i] - dates[i - 1]).days + plus_error[i - 1]
-    minus_error[i] = minus_error[i] * (dates[i] - dates[i - 1]).days + minus_error[i - 1]
-forecast = np.insert(forecast, 0, data[-1])
-plus_error = np.insert(plus_error, 0, data[-1])
-minus_error = np.insert(minus_error, 0, data[-1])
-dates = [times[-1], *dates]
-plt.plot(dates, forecast, label='forecasted data')
-plt.plot(dates, plus_error, linestyle='--', label='95% interval positive error')
-plt.plot(dates, minus_error, linestyle='--', label='95% interval negative error')
-plt.plot(times[len(times) - 25:], data[len(data) - 25:], label='original data')
-plt.xlabel('date')
-plt.ylabel('P(t)')
+    print(f"Ljung-Box test (max_lag={max_lag}):")
+    print(f"  Q-statistic = {Q:.4f}")
+    print(f"  p-value = {p_value:.4f}")
 
-# нанесение построенной модели в виде текста на график
-s = rf'r(t)={np.round(optimal_ar.ar_coef[0], 2)}'
-for i in range(len(optimal_ar.ar_lags)):
-    if optimal_ar.ar_coef[i + 1] >= 0:
-        s += '+'
-    s += str(np.round(optimal_ar.ar_coef[i + 1], 2)) + rf'*r(t-{optimal_ar.ar_lags[i]})'
-    if i in [2, 6, 10]:
-        s += '\n'
-plt.text(np.datetime64('2016-01-01'), 20, s, fontsize=10)
-plt.legend()
-plt.title('Forecast with 95% interval error on optimal AR')
-plt.savefig(f'{image_directory}/forecast.png')
-plt.close()
+    if p_value < 0.05:
+        print("  Есть статистически значимая автокорреляция остатков (отклоняем H0).")
+    else:
+        print("  Автокорреляция остатков не значима (не отклоняем H0).")
+
+    # построение функции правдоподобия
+
+    ars = []
+    likelihood = []
+    for i in range(len(ar_lags)):
+        my_ar = AR.AR()
+        my_ar.fit(r, ar_lags[:i + 1])
+        ars.append(my_ar)
+        likelihood.append(my_ar.likelihood)
+
+    plt.plot(ar_lags, likelihood)
+    plt.scatter(optimal_ar.ar_lags[-1], optimal_ar.likelihood, label='optimal')
+    plt.xlabel('lag')
+    plt.ylabel(r'$\log{L}+\frac{n}{2}\cdot\log{2\pi}$')
+    plt.title("Log likelihood")
+    plt.grid()
+    plt.legend()
+    plt.savefig(f'{image_directory}/likelihood.png')
+    plt.close()
+
+    # построение критериев
+
+    criteria_name = {
+        'aic': 'AIC (Akaike Information Criterion)',
+        'aic_c': 'AICc (Corrected AIC for small samples)',
+        'bic': 'BIC (Bayesian Information Criterion)',
+        'hqc': 'Hannan–Quinn Criterion'
+    }
+
+    # Стиль линий и маркеров для каждого критерия
+    plot_styles = {
+        'aic': {'color': 'aqua', 'linestyle': '-', 'marker': 'o', 'alpha': 1},
+        'aic_c': {'color': 'blue', 'linestyle': '--', 'marker': '*', 'alpha': 0.85},
+        'bic': {'color': 'green', 'linestyle': '-', 'marker': '^', 'alpha': 1},
+        'hqc': {'color': 'red', 'linestyle': '-', 'marker': 'd', 'alpha': 1}
+    }
+
+    for crit in distributions.criteria.keys():
+        crit_data = [my_ar.criteria(crit) for my_ar in ars]
+        style = plot_styles.get(crit)
+        plt.plot(ar_lags, crit_data, label=criteria_name[crit],
+                 color=style['color'], linestyle=style['linestyle'])
+        plt.scatter(optimal_ar.ar_lags[-1], optimal_ar.criteria(crit),
+                    color=style['color'], marker=style['marker'], s=100, edgecolors='k',
+                    alpha=style['alpha'], label=f'Optimal {criteria_name[crit]}')
+    plt.grid(True, linestyle='--', alpha=0.7)
+    plt.xlabel('Lag')
+    plt.ylabel('Criteria Value')
+    plt.title('Information Criteria for AR model selection')
+    plt.legend(fontsize=9, loc='upper right', frameon=True)
+    plt.tight_layout()
+    plt.savefig(f'{image_directory}/criterions.png')
+    plt.close()
+
+    plt.hist(optimal_eps.flatten(), bins=30, density=True, alpha=0.6, color='blue', label='Histogram')
+    eps_sorted = np.sort(optimal_eps)
+
+    dist_optimal = optimal_ar.dist.pdf(eps_sorted)
+    plt.plot(eps_sorted, dist_optimal, color='red', lw=2, label='Fitted Gauss PDF')
+
+    plt.xlabel('Error')
+    plt.ylabel('Density')
+    plt.title('Gaussian PDF on Optimal AR Residuals')
+    plt.legend()
+    plt.grid(True)
+    plt.tight_layout()
+
+    plt.savefig(f'{image_directory}/pdf.png')
+    plt.close()
+
+    # построение QQ
+
+    n = len(eps_sorted)
+    probs = (np.arange(1, n + 1) - 0.5) / n
+    theoretical_quants = optimal_ar.dist.inv_cdf(probs)
+    plt.figure(figsize=(6, 6))
+    plt.plot(theoretical_quants, eps_sorted, 'o', label='Q–Q points')
+    plt.plot(theoretical_quants, theoretical_quants, 'r--', label='y = x')  # линия идеального совпадения
+    plt.xlabel('Theoretical quantiles N(mean, dispersion)')
+    plt.ylabel('Observed residuals')
+    plt.title("Q–Q Plot of Residuals")
+    plt.legend()
+    plt.grid(True)
+    plt.savefig(f'{image_directory}/QQ.png')
+    plt.close()
+
+    # построение прогноза
+
+    forecasted, error = optimal_ar.forecast(r, forecast_horizon, interval=confidence)
+    plus_error=forecasted + error
+    minus_error=forecasted - error
+    forecast_dates = [times[-1] + relativedelta(months=i + 1) for i in range(forecast_horizon)]
+    dates = [times[-1], *forecast_dates]
+
+    if use_log_diff:
+        forecast = np.exp(forecasted) - 1
+        plus_error = np.exp(forecasted + error) - 1
+        minus_error = np.exp(forecasted - error) - 1
+
+        forecast[0] = forecast[0] * (dates[0] - times[-1]).days + data[-1]
+        plus_error[0] = plus_error[0] * (dates[0] - times[-1]).days + data[-1]
+        minus_error[0] = minus_error[0] * (dates[0] - times[-1]).days + data[-1]
+
+        for i in range(1, forecast_horizon):
+            forecast[i] = forecast[i] * (dates[i] - dates[i - 1]).days + forecast[i - 1]
+            plus_error[i] = plus_error[i] * (dates[i] - dates[i - 1]).days + plus_error[i - 1]
+            minus_error[i] = minus_error[i] * (dates[i] - dates[i - 1]).days + minus_error[i - 1]
+
+    forecast = np.insert(forecast, 0, data[-1])
+    plus_error = np.insert(plus_error, 0, data[-1])
+    minus_error = np.insert(minus_error, 0, data[-1])
+
+    plt.plot(dates, forecast, label='forecasted data')
+    plt.plot(dates, plus_error, linestyle='--', label='95% interval positive error')
+    plt.plot(dates, minus_error, linestyle='--', label='95% interval negative error')
+    plt.plot(times[len(times) - 25:], data[len(data) - 25:], label='original data')
+
+    plt.xlabel('date')
+    plt.ylabel('P(t)')
+
+    # нанесение построенной модели в виде текста на график
+    s = rf'r(t)={np.round(optimal_ar.ar_coef[0], 2)}'
+    for i in range(len(optimal_ar.ar_lags)):
+        if optimal_ar.ar_coef[i + 1] >= 0:
+            s += ' + '
+        s += str(np.round(optimal_ar.ar_coef[i + 1], 2)) + rf'$ \cdot r(t-{optimal_ar.ar_lags[i]})$'
+        if i in [2, 6, 10]:
+            s += '\n'
+    plt.text(np.datetime64('2015-12-01'), 20, s, fontsize=10)
+    plt.legend()
+    plt.title('Forecast with 95% interval error on optimal AR')
+    plt.savefig(f'{image_directory}/forecast.png')
+    plt.close()
+
+if __name__ == "__main__":
+    main()

@@ -4,6 +4,7 @@ import math
 
 criteria = {
     'aic': lambda log_l, n, k: 2 * k - 2 * log_l,
+    'aic_c': lambda log_l, n, k: 2 * k - 2 * log_l + (2 * k * k + 2 * k) / (n - k - 1),
     'bic': lambda log_l, n, k: k * math.log(n) - 2 * log_l,
     'hqc': lambda log_l, n, k: 2 * k * math.log(math.log(n)) - 2 * log_l
 }
@@ -16,7 +17,7 @@ class GaussDist:
 
     def fit(self, data):
         self.mean = np.mean(data)
-        self.dispersion = np.std(data)
+        self.dispersion = np.std(data, ddof=1)
 
     def pdf(self, x):
         return scipy.stats.norm.pdf(x, loc=self.mean, scale=self.dispersion)
@@ -32,7 +33,7 @@ class GaussDist:
             return -n / 2 * math.log(self.dispersion ** 2)
         else:
             return -n / 2 * (math.log(self.dispersion ** 2) + np.sum(np.square(res - self.mean)) / (
-                    2 * self.dispersion ** 2))
+                    self.dispersion ** 2))
 
 
 class StudentDist:
@@ -83,3 +84,5 @@ class ChiSqrDist:
 
     def ppf(self, q):
         return scipy.stats.chi2.ppf(q, self.mean, self.dispersion, self.degree_freedom)
+    def cdf(self, q):
+        return scipy.stats.chi2.cdf(q, self.mean, self.dispersion, self.degree_freedom)

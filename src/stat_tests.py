@@ -23,4 +23,4 @@ def ljung_box_test(data, max_lag):
     for i in range(1, max_lag + 1):
         Q += p[i - 1] * p[i - 1] / (n - i)
     Q *= n * (n + 2)
-    return distributions.ChiSqrDist(mean=0, dispersion=1, degree_freedom=max_lag).ppf(Q)
+    return Q, distributions.ChiSqrDist(mean=max_lag, dispersion=2 * max_lag, degree_freedom=max_lag).cdf(Q)
