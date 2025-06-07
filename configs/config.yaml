@@ -1,0 +1,15 @@
+input_data_path: "src/Electric_Production.csv"
+
+preprocessing:
+  log_diff: true
+
+model:
+  model_type: "AR"
+  max_lag: 50
+  distribution: "gaussian"
+
+forecast:
+  forecast_steps: 20
+  confidence: 0.95
+
+images_dir: "../images"
