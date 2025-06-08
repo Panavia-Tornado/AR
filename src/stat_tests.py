@@ -2,6 +2,22 @@ import numpy as np
 import linear_dependence
 import distributions
 
+def autocorr(data, num_lags):
+    x = np.asarray(data)
+    n = len(data)
+    x_mean = np.mean(x)
+    x_var = np.var(x)
+    acf_vals = np.empty(num_lags)
+    for lag in range(1, num_lags):
+        x1 = data[:n - lag]
+        x2 = data[lag:]
+
+        # ковариация с лагом
+        cov = np.sum((x1 - x_mean) * (x2 - x_mean)) / (n - lag)
+
+        # нормируем на дисперсию
+        acf_vals[lag] = cov / x_var
+    return acf_vals
 
 def parcorr(data, num_lags):
     n = len(data)
@@ -18,9 +34,9 @@ def parcorr(data, num_lags):
 
 def ljung_box_test(data, max_lag):
     n = len(data)
-    p = parcorr(data, max_lag)
+    p = autocorr(data, max_lag)
     Q = 0
     for i in range(1, max_lag + 1):
         Q += p[i - 1] * p[i - 1] / (n - i)
     Q *= n * (n + 2)
-    return Q, distributions.ChiSqrDist(mean=max_lag, dispersion=2 * max_lag, degree_freedom=max_lag).cdf(Q)
+    return Q, 1 - distributions.ChiSqrDist(degree_freedom=max_lag).cdf(Q)

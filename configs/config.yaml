@@ -5,8 +5,9 @@ preprocessing:
 
 model:
   model_type: "AR"            # Тип модели
-  max_lag: 50                # Максимальное число лагов для перебора
+  max_lag: 75                 # Максимальное число лагов для перебора
   distribution: "gaussian"    # Распределение ошибок: gaussian / student / ...
+  lag_selection_criterion: "AIC"  # Критерий выбора лага: AIC / AICc / BIC / HQC
 
 forecast:
   forecast_steps: 20          # Кол-во шагов прогноза вперёд

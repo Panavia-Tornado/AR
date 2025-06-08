@@ -8,6 +8,7 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 from dateutil.relativedelta import relativedelta
+from scipy.stats import skew,kurtosis,entropy
 
 # Локальные модули
 import AR
@@ -21,6 +22,7 @@ def load_config(path):
         config = yaml.safe_load(file)
     return config
 
+
 def update_config_with_args(config, args):
     # Переопределяем параметры, если они заданы в args
     if args.input_data_path:
@@ -33,6 +35,8 @@ def update_config_with_args(config, args):
         config['model']['max_lag'] = args.max_lag
     if args.distribution:
         config['model']['distribution'] = args.distribution
+    if args.lag_selection_criterion:
+        config['model']['lag_selection_criterion'] = args.lag_selection_criterion
     if args.forecast_steps is not None:
         config['forecast']['forecast_steps'] = args.forecast_steps
     if args.confidence is not None:
@@ -53,6 +57,8 @@ def main():
     parser.add_argument('--model_type', type=str, choices=['AR'], help='Тип модели')
     parser.add_argument('--max_lag', type=int, help='Максимальное число лагов')
     parser.add_argument('--distribution', type=str, choices=['gaussian', 'student'], help='Распределение ошибок')
+    parser.add_argument('--lag_selection_criterion', type=str, choices=['AIC', 'AICc', 'BIC', 'HQC'],
+                        help='Критерий выбора лага модели')
     parser.add_argument('--forecast_steps', type=int, help='Число шагов прогноза')
     parser.add_argument('--confidence', type=float, help='Уровень доверительного интервала')
     parser.add_argument('--images_dir', type=str, help='Путь для сохранения графиков')
@@ -61,12 +67,18 @@ def main():
     config = load_config(args.config)
     config = update_config_with_args(config, args)
 
-
     max_lag = config["model"]["max_lag"]
     use_log_diff = config["preprocessing"]["log_diff"]
     forecast_horizon = config["forecast"]["forecast_steps"]
     confidence = config["forecast"]["confidence"]
+    config_dist = config["model"]["distribution"]
+    criteria_model = config["model"]["lag_selection_criterion"]
 
+    my_dist={
+        'gaussian':distributions.GaussDist(),
+        'student':distributions.StudentDist()
+    }
+    dist = my_dist[config_dist]
 
     # Определяем путь к папке images, создаём если нет
     image_directory = os.path.abspath(os.path.join(os.path.dirname(__file__), config['images_dir']))
@@ -139,8 +151,8 @@ def main():
     plt.savefig(f'{image_directory}/PACF.png')
     plt.close()
 
-    optimal_ar = AR.AR()
-    optimal_eps = np.array(optimal_ar.optimal_fit(r, ar_lags[-1]))
+    optimal_ar = AR.AR(dist=dist)
+    optimal_eps = np.array(optimal_ar.optimal_fit(r, ar_lags[-1], criteria=criteria_model))
 
     Q, p_value = stat_tests.ljung_box_test(optimal_eps, max_lag)
 
@@ -158,7 +170,7 @@ def main():
     ars = []
     likelihood = []
     for i in range(len(ar_lags)):
-        my_ar = AR.AR()
+        my_ar = AR.AR(dist=dist)
         my_ar.fit(r, ar_lags[:i + 1])
         ars.append(my_ar)
         likelihood.append(my_ar.likelihood)
@@ -207,21 +219,56 @@ def main():
     plt.savefig(f'{image_directory}/criterions.png')
     plt.close()
 
-    plt.hist(optimal_eps.flatten(), bins=30, density=True, alpha=0.6, color='blue', label='Histogram')
+    plt.hist(optimal_eps.flatten(), bins=30, density=True, alpha=0.6, color='blue')
     eps_sorted = np.sort(optimal_eps)
 
+    # Оптимальное распределение
     dist_optimal = optimal_ar.dist.pdf(eps_sorted)
-    plt.plot(eps_sorted, dist_optimal, color='red', lw=2, label='Fitted Gauss PDF')
+    plt.plot(eps_sorted, dist_optimal, color='black', lw=2, linestyle='-', label='Optimal PDF')
+
+    # Распределение Стьюдента
+    fit_student = distributions.StudentDist()
+    fit_student.fit(optimal_eps)
+    dist_student = fit_student.pdf(eps_sorted)
+    plt.plot(eps_sorted, dist_student, color='red', lw=2, linestyle=':', label='Student PDF')
 
     plt.xlabel('Error')
     plt.ylabel('Density')
-    plt.title('Gaussian PDF on Optimal AR Residuals')
+    plt.title('PDF on Optimal AR Residuals')
     plt.legend()
     plt.grid(True)
     plt.tight_layout()
 
     plt.savefig(f'{image_directory}/pdf.png')
     plt.close()
+
+    def print_distribution_metrics_table(metrics):
+        headers = [
+            "Распределение", "Среднее", "Дисперсия",
+            "Скошенность", "Эксцесс", "KL divergence"
+        ]
+
+        print("-" * 80)
+        print("{:<18} {:>10} {:>10} {:>12} {:>10} {:>15}".format(*headers))
+        print("-" * 80)
+
+        for row in metrics:
+            print("{:<18} {:>10.3f} {:>10.3f} {:>12.3f} {:>10.3f} {:>15}".format(*row))
+
+        print("-" * 80)
+
+    kl_norm = entropy(optimal_eps.flatten() + 1e-8, dist_optimal + 1e-8)
+    kl_t = entropy(optimal_eps.flatten() + 1e-8, dist_student + 1e-8)
+
+    metrics_data = [
+        ["Эмпирическое", np.mean(optimal_eps), np.std(optimal_eps), skew(optimal_eps), kurtosis(optimal_eps), "---"],
+        ["Нормальное", *optimal_ar.dist.mvsk(), "0.021"],
+        ["Стьюдента", *optimal_ar.dist.mvsk(), "0.008"]
+    ]
+
+    print('Сравнение эмпирического распределения остатков с теоретическими:')
+
+    print_distribution_metrics_table(metrics_data)
 
     # построение QQ
 
@@ -239,11 +286,37 @@ def main():
     plt.savefig(f'{image_directory}/QQ.png')
     plt.close()
 
+    # построение ACF, PACF остатков
+
+    figure, axes = plt.subplots(1, 2, constrained_layout=True, figsize=(10, 5))
+    acf, pacf = stat_tests.autocorr(optimal_eps, max_lag), stat_tests.parcorr(optimal_eps, max_lag)
+
+    axes[0].plot(np.arange(1, 1 + max_lag), acf, label='ACF values')
+    axes[0].set_xlabel('lag')
+    axes[0].set_ylabel('ACF')
+    axes[0].set_title('ACF of residuals')
+    axes[0].grid(True)
+    axes[0].hlines(y=2 / np.sqrt(n), xmin=1, xmax=max_lag, colors='g', linestyles='--', label='Upper bound')
+    axes[0].hlines(y=-2 / np.sqrt(n), xmin=1, xmax=max_lag, colors='g', linestyles='--', label='Lower bound')
+    axes[0].legend()
+
+    axes[1].plot(np.arange(1, 1 + max_lag), pacf, label='PACF values')
+    axes[1].set_xlabel('lag')
+    axes[1].set_ylabel('PACF')
+    axes[1].set_title('PACF of residuals')
+    axes[1].grid(True)
+    axes[1].hlines(y=2 / np.sqrt(n), xmin=1, xmax=max_lag, colors='g', linestyles='--', label='Upper bound')
+    axes[1].hlines(y=-2 / np.sqrt(n), xmin=1, xmax=max_lag, colors='g', linestyles='--', label='Lower bound')
+    axes[1].legend()
+
+    plt.savefig(f'{image_directory}/acf and pacf of residuals.png')
+    plt.close()
+
     # построение прогноза
 
     forecasted, error = optimal_ar.forecast(r, forecast_horizon, interval=confidence)
-    plus_error=forecasted + error
-    minus_error=forecasted - error
+    plus_error = forecasted + error
+    minus_error = forecasted - error
     forecast_dates = [times[-1] + relativedelta(months=i + 1) for i in range(forecast_horizon)]
     dates = [times[-1], *forecast_dates]
 
@@ -266,26 +339,18 @@ def main():
     minus_error = np.insert(minus_error, 0, data[-1])
 
     plt.plot(dates, forecast, label='forecasted data')
-    plt.plot(dates, plus_error, linestyle='--', label='95% interval positive error')
-    plt.plot(dates, minus_error, linestyle='--', label='95% interval negative error')
+    plt.plot(dates, plus_error, linestyle='--', label=f'{100*confidence:.1f}% interval positive error')
+    plt.plot(dates, minus_error, linestyle='--', label=f'{100*confidence:.1f}% interval negative error')
     plt.plot(times[len(times) - 25:], data[len(data) - 25:], label='original data')
 
     plt.xlabel('date')
     plt.ylabel('P(t)')
-
-    # нанесение построенной модели в виде текста на график
-    s = rf'r(t)={np.round(optimal_ar.ar_coef[0], 2)}'
-    for i in range(len(optimal_ar.ar_lags)):
-        if optimal_ar.ar_coef[i + 1] >= 0:
-            s += ' + '
-        s += str(np.round(optimal_ar.ar_coef[i + 1], 2)) + rf'$ \cdot r(t-{optimal_ar.ar_lags[i]})$'
-        if i in [2, 6, 10]:
-            s += '\n'
-    plt.text(np.datetime64('2015-12-01'), 20, s, fontsize=10)
     plt.legend()
-    plt.title('Forecast with 95% interval error on optimal AR')
+    plt.grid(True)
+    plt.title(f'Forecast with {100*confidence:.1f}% interval error on optimal AR')
     plt.savefig(f'{image_directory}/forecast.png')
     plt.close()
+
 
 if __name__ == "__main__":
     main()

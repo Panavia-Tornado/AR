@@ -2,7 +2,7 @@ import distributions
 import stat_tests
 import linear_dependence
 import numpy as np
-
+import copy
 
 class AR:
     def __init__(self, dist=distributions.GaussDist()):
@@ -34,16 +34,26 @@ class AR:
         for i in range(len(p)):
             if abs(p[i]) > 2 / n ** 0.5:
                 ar_lags.append(i + 1)
+        flag = False
         eps = self.fit(data, [ar_lags[0]])
+        Q, p_value = stat_tests.ljung_box_test(eps, max_ar)
+        if p_value < 0.05:
+            flag=True
         for i in range(1, len(ar_lags)):
-            test_ar = AR()
+            test_ar = AR(dist=self.dist.copy())
             test_eps = test_ar.fit(data, ar_lags[:i + 1])
-            if test_ar.criteria(criteria) < self.criteria(criteria):
-                self.dist = test_ar.dist
+            Q, p_value = stat_tests.ljung_box_test(test_eps, max_ar)
+            if p_value < 0.05:
+                continue
+            test_ar.dist.fit(test_eps)
+            if flag or test_ar.criteria(criteria) < self.criteria(criteria):
+                self.dist = test_ar.dist.copy()
                 self.ar_coef = test_ar.ar_coef
                 self.ar_lags = test_ar.ar_lags
                 self.likelihood = test_ar.likelihood
                 eps = test_eps
+            if flag:
+                flag = False
         return eps
 
     def forecast(self, data, horizont, interval=25E-2):
